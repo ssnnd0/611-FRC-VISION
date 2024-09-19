@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Raspberry Pi Machine Learning Vision for FRC</title>
+    <title>FRC 611 VISION</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -78,7 +78,7 @@
         const canvas = document.getElementById('backgroundCanvas');
         const ctx = canvas.getContext('2d');
         const dots = [];
-        const numDots = 50;
+        const numDots = 200;
         const maxDistance = 150;
 
         canvas.width = window.innerWidth;
@@ -118,7 +118,7 @@
                         ctx.beginPath();
                         ctx.moveTo(dots[i].x, dots[i].y);
                         ctx.lineTo(dots[j].x, dots[j].y);
-                        ctx.strokeStyle = 'rgba(0, 255, 0, ' + (1 - distance / maxDistance) + ')';
+                        ctx.strokeStyle = 'rgba(40, 140, 255, ' + (1 - distance / maxDistance) + ')';
                         ctx.stroke();
                     }
                 }
