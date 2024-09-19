@@ -3,26 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FRC TEAM 611 VISION</title>
+    <title>Raspberry Pi Machine Learning Vision for FRC</title>
     <style>
         body {
             font-family: Arial, sans-serif;
             line-height: 1.6;
+            background-color: black;
+            color: white;
             cursor: none; /* Hide the default cursor */
         }
         .custom-cursor {
             position: absolute;
             width: 10px;
             height: 10px;
-            background-color: black;
+            background-color: white;
             border-radius: 50%;
             pointer-events: none;
             z-index: 1000;
+        }
+        .logo {
+            display: block;
+            margin: 0 auto;
+            width: 150px;
+        }
+        footer {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 0.8em;
         }
     </style>
 </head>
 <body>
     <div class="custom-cursor" id="customCursor"></div>
+    <img src="team611_logo.png" alt="Team 611 FRC Logo" class="logo">
     <h1>Raspberry Pi Machine Learning Vision for FRC</h1>
     <h2>Inspiration</h2>
     <p>Vision tracking for FRC (FIRST Robotics Competition).</p>
@@ -66,6 +79,9 @@
         <li><a href="https://onnx.ai/">ONNX Documentation</a></li>
         <li><a href="https://www.tensorflow.org/">TensorFlow Documentation</a></li>
     </ul>
+    <footer>
+        © Sandro Thornton / @ssnnd0
+    </footer>
     <script>
         document.addEventListener('mousemove', function(e) {
             var cursor = document.getElementById('customCursor');
