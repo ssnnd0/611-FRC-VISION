@@ -35,14 +35,14 @@
 </head>
 <body>
     <div class="custom-cursor" id="customCursor"></div>
-    <img src="team611_logo.png" alt="Team 611 FRC Logo" class="logo">
+    <img src="team611.png" alt="Team 611 FRC Logo" class="logo">
     <h1>Raspberry Pi Machine Learning Vision for FRC</h1>
     <h2>Inspiration</h2>
     <p>Vision tracking for FRC (FIRST Robotics Competition).</p>
     <h2>What does it do?</h2>
-    <p>CustomVision.AI exports to Tensorflow and Onnx, which is used within my program to detect the object itself, then the Python program runs vision math on the supplied co-ordinates of any detected object to find out where it is in space. The program detects the object, and runs vision calculations to find distance to the object. It sends this information over the robot network using PyNetworkTables for additional processing on the roboRIO (e.g; pathfinding).</p>
+    <p>CustomVision.AI exports to Tensorflow and Onnx, which is used within the program to detect the object itself, then the Python program runs vision math on the supplied co-ordinates of any detected object to find out where it is in space. The program detects the object, and runs vision calculations to find distance to the object. It sends this information over the robot network using PyNetworkTables for additional processing on the roboRIO (e.g; pathfinding).</p>
     <h2>Next Steps</h2>
-    <p>We’d love to optimize our machine learning model by ditching CustomVision.AI and Tensorflow entirely and instead running the model on an OpenCV Dynamic Neural Network, and using all four cores on the Raspberry Pi. With this change, the vision program will be able to run in complete realtime—opening its use for on-the-fly pathfinding in the autonomous period and lining up with targets during the teleoperated period. Additionally, we’d love to extract 3D-world co-ordinates from the detected object using OpenCV, allowing us to go from driving straight with PID loops to generating paths on the fly with Pathfinder to get our robot to swerve directly to its target.</p>
+    <p>We can optimize our machine learning model by ditching CustomVision.AI and Tensorflow entirely and instead running the model on an OpenCV Dynamic Neural Network, and using all four cores on the Raspberry Pi. With this change, the vision program will be able to run in complete realtime—opening its use for on-the-fly pathfinding in the autonomous period and lining up with targets during the teleoperated period. Additionally, we’d love to extract 3D-world co-ordinates from the detected object using OpenCV, allowing us to go from driving straight with PID loops to generating paths on the fly with Pathfinder to get our robot to swerve directly to its target.</p>
     <h3>Want to learn more?</h3>
     <ul>
         <li><a href="https://docs.google.com/document/d/1xEkql4t2k2on5pWODVsJKmNB83CbAXsfhYoOYy8iIx8/edit?usp=sharing">Google Doc using Tensorflow</a></li>
@@ -80,7 +80,7 @@
         <li><a href="https://www.tensorflow.org/">TensorFlow Documentation</a></li>
     </ul>
     <footer>
-        © Sandro Thornton / @ssnnd0
+        © Sandro Thornton / https://github.com/ssnnd0
     </footer>
     <script>
         document.addEventListener('mousemove', function(e) {
