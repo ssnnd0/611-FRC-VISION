@@ -10,41 +10,37 @@
             line-height: 1.6;
             background-color: black;
             color: white;
-            /* cursor: none;  Remove this line to show the default cursor */ 
-            z-index: 999;
+            /* Remove cursor: none to show the default cursor */
+            margin: 0; /* Remove default body margins */
         }
         .custom-cursor {
-            position: absolute;
-            width: 10px;
-            height: 10px;
-            background-color: white;
-            border-radius: 50%;
-            pointer-events: none;
-            z-index: 1000;
+            display: none; /* Hide the custom cursor */
         }
         .logo {
             display: block;
-            margin: 0 auto;
+            margin: 20px auto; /* Add some top margin */
             width: 150px;
         }
         footer {
             text-align: center;
             margin-top: 20px;
             font-size: 0.8em;
+            position: relative; /* Position footer relative to body */
+            z-index: 1; /* Ensure footer is above canvas */
         }
         canvas {
             display: block;
-            position: absolute;
+            position: fixed; /* Make canvas fixed to the viewport */
             top: 0;
             left: 0;
-            height:100%;
-            width:100%;
-            z-index:-1;
+            width: 100vw; /* 100% of viewport width */
+            height: 100vh; /* 100% of viewport height */
+            z-index: -1; /* Ensure canvas is behind content */
         }
     </style>
 </head>
 <body>
-    <div class="custom-cursor" id="customCursor"></div> 
+    <div class="custom-cursor" id="customCursor"></div>
     <canvas id="backgroundCanvas"></canvas>
     <img src="team611.png" alt="Team 611 FRC Logo" class="logo">
     <h1>Raspberry Pi Machine Learning Vision for FRC</h1>
@@ -68,21 +64,6 @@
             distribute this software, either in source code form or as a compiled
             binary, for any purpose, commercial or non-commercial, and by any
             means.
-            In jurisdictions that recognize copyright laws, the author or authors
-            of this software dedicate any and all copyright interest in the
-            software to the public domain. We make this dedication for the benefit
-            of the public at large and to the detriment of our heirs and
-            successors. We intend this dedication to be an overt act of
-            relinquishment in perpetuity of all present and future rights to this
-            software under copyright law.
-            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-            EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
-            MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
-            IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-            OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-            ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-            OTHER DEALINGS IN THE SOFTWARE.
-            For more information, please refer to https://unlicense.org
         </code>
     </pre>
     <h3>Documentation</h3>
@@ -97,7 +78,7 @@
         const canvas = document.getElementById('backgroundCanvas');
         const ctx = canvas.getContext('2d');
         const dots = [];
-        const numDots = 75;
+        const numDots = 50;
         const maxDistance = 150;
 
         canvas.width = window.innerWidth;
@@ -146,10 +127,13 @@
             requestAnimationFrame(draw);
         }
 
-        // Remove the mousemove event listener 
-        // document.addEventListener('mousemove', function(e) { ... });
+        draw(); // Start the animation
 
-        draw();
+        // Resize the canvas when the window is resized
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
     </script>
 </body>
 </html>
