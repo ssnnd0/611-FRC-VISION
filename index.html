@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Raspberry Pi Machine Learning Vision for FRC</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            cursor: none; /* Hide the default cursor */
+        }
+        .custom-cursor {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            background-color: black;
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div class="custom-cursor" id="customCursor"></div>
+    <h1>Raspberry Pi Machine Learning Vision for FRC</h1>
+    <h2>Inspiration</h2>
+    <p>Vision tracking for FRC (FIRST Robotics Competition).</p>
+    <h2>What does it do?</h2>
+    <p>CustomVision.AI exports to Tensorflow and Onnx, which is used within my program to detect the object itself, then the Python program runs vision math on the supplied co-ordinates of any detected object to find out where it is in space. The program detects the object, and runs vision calculations to find distance to the object. It sends this information over the robot network using PyNetworkTables for additional processing on the roboRIO (e.g; pathfinding).</p>
+    <h2>Next Steps</h2>
+    <p>We’d love to optimize our machine learning model by ditching CustomVision.AI and Tensorflow entirely and instead running the model on an OpenCV Dynamic Neural Network, and using all four cores on the Raspberry Pi. With this change, the vision program will be able to run in complete realtime—opening its use for on-the-fly pathfinding in the autonomous period and lining up with targets during the teleoperated period. Additionally, we’d love to extract 3D-world co-ordinates from the detected object using OpenCV, allowing us to go from driving straight with PID loops to generating paths on the fly with Pathfinder to get our robot to swerve directly to its target.</p>
+    <h3>Want to learn more?</h3>
+    <ul>
+        <li><a href="https://docs.google.com/document/d/1xEkql4t2k2on5pWODVsJKmNB83CbAXsfhYoOYy8iIx8/edit?usp=sharing">Google Doc using Tensorflow</a></li>
+        <li><a href="https://docs.google.com/document/d/1wLhM5ahvdox7a_Fom5_leUtu3d5cdZXE6BZQBcUypsc/edit?usp=sharing">Google Doc using ONNX</a></li>
+    </ul>
+    <h2>🔒 Code License</h2>
+    <p>This repository is licensed through the <code>The Unlicense</code>. More details are listed <a href="https://github.com/ssnnd0/611-FRC-VISIOn/blob/main/LICENSE">here</a>.</p>
+    <pre>
+        <code>
+            This is free and unencumbered software released into the public domain.
+            Anyone is free to copy, modify, publish, use, compile, sell, or
+            distribute this software, either in source code form or as a compiled
+            binary, for any purpose, commercial or non-commercial, and by any
+            means.
+            In jurisdictions that recognize copyright laws, the author or authors
+            of this software dedicate any and all copyright interest in the
+            software to the public domain. We make this dedication for the benefit
+            of the public at large and to the detriment of our heirs and
+            successors. We intend this dedication to be an overt act of
+            relinquishment in perpetuity of all present and future rights to this
+            software under copyright law.
+            THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+            EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+            MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+            IN NO EVENT SHALL THE AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR
+            OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+            ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+            OTHER DEALINGS IN THE SOFTWARE.
+            For more information, please refer to https://unlicense.org
+        </code>
+    </pre>
+    <h3>Documentation</h3>
+    <ul>
+        <li><a href="https://onnx.ai/">ONNX Documentation</a></li>
+        <li><a href="https://www.tensorflow.org/">TensorFlow Documentation</a></li>
+    </ul>
+    <script>
+        document.addEventListener('mousemove', function(e) {
+            var cursor = document.getElementById('customCursor');
+            cursor.style.left = e.pageX + 'px';
+            cursor.style.top = e.pageY + 'px';
+        });
+    </script>
+</body>
+</html>
