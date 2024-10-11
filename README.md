@@ -15,6 +15,8 @@ to optimize our machine learning model by ditching CustomVision.AI and Tensorflo
 
 [Google Doc using ONNX)](https://docs.google.com/document/d/1wLhM5ahvdox7a_Fom5_leUtu3d5cdZXE6BZQBcUypsc/edit?usp=sharing)
 
+[OpenCV Documentation](https://docs.opencv.org/4.x/d2/d58/tutorial_table_of_content_dnn.html)
+
 ## 🔒 Code License
 This repository is licensed through the `The Unliscence`. More details are listed [here](https://github.com/ssnnd0/611-FRC-VISIOn/blob/main/LICENSE). 
 
