@@ -13,6 +13,10 @@ print_message() {
 print_message "Updating package list..."
 sudo apt-get update
 
+# Upgrade existing packages
+print_message "Upgrading existing packages..."
+sudo apt-get upgrade -y
+
 # Install OpenCV dependencies
 print_message "Installing OpenCV dependencies..."
 sudo apt-get install -y build-essential cmake git pkg-config libgtk-3-dev \
