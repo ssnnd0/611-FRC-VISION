@@ -4,7 +4,7 @@
 print_message() {
     echo ""
     echo "========================================"
-    echo "      611 Vision; Sandro Thornton"
+    echo "$1"
     echo "========================================"
     echo ""
 }
@@ -17,7 +17,7 @@ sudo apt-get update
 print_message "Installing OpenCV dependencies..."
 sudo apt-get install -y build-essential cmake git pkg-config libgtk-3-dev \
     libavcodec-dev libavformat-dev libswscale-dev libjpeg-dev libpng-dev \
-    libtiff-dev libatlas-base-dev gfortran python3-dev
+    libtiff-dev libatlas-base-dev gfortran python3-dev libv4l-dev
 
 # Install OpenCV
 print_message "Installing OpenCV..."
@@ -26,7 +26,8 @@ git clone https://github.com/opencv/opencv.git
 cd opencv
 mkdir build
 cd build
-cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local ..
+cmake -D CMAKE_BUILD_TYPE=Release -D CMAKE_INSTALL_PREFIX=/usr/local \
+    -D WITH_V4L=ON -D WITH_GTK=ON -D WITH_TBB=ON -D WITH_OPENGL=ON ..
 make -j$(nproc)
 sudo make install
 
@@ -67,3 +68,8 @@ echo "You can place your own detection file in the project directory as well."
 echo "Make sure to update the ObjectDetection class to use your detection file."
 echo ""
 echo "You can now compile and run your Java application!"
+echo ""
+echo "For Arducam and other camera support, ensure your camera is connected and recognized by the system."
+echo "You can test camera access using the following command:"
+echo "  v4l2-ctl --list-devices"
+echo "If your camera is listed, it should work with OpenCV."
