@@ -8,16 +8,6 @@ public final class Constants {
         public static final double kCameraFocalLength = 554.3; // Focal length in pixels
         public static final double kTagSize = 0.162; // Tag size in meters
         public static final Map<Integer, Pose2d> kTagPoses = new HashMap<>(); // Tag poses on the field
-    }
-}
-
-
-public final class Constants {
-    // ... existing constants ...
-
-    public static final class VisionConstants {
-        // ... existing constants ...
-
         static {
             kTagPoses.put(1, new Pose2d(1.0, 1.0, new Rotation2d(0)));
             kTagPoses.put(2, new Pose2d(2.0, 2.0, new Rotation2d(0)));
