@@ -1,108 +1,321 @@
 package frc.robot.vision;
 
 import edu.wpi.first.apriltag.*;
+import edu.wpi.first.cameraserver.*;
+import edu.wpi.first.cscore.*;
 import edu.wpi.first.networktables.*;
 import edu.wpi.first.wpilibj.*;
+import edu.wpi.first.wpilibj.drive.*;
 import edu.wpi.first.math.geometry.*;
+import edu.wpi.first.wpilibj.kinematics.*;
+import edu.wpi.first.wpilibj2.command.*;
 import org.opencv.core.*;
 import org.opencv.imgproc.Imgproc;
-import java.util.*;
+import org.opencv.dnn.Dnn;
+import org.opencv.dnn.Net;
 import javax.servlet.http.*;
 import org.eclipse.jetty.server.*;
 import org.eclipse.jetty.servlet.*;
-
-// Game object imports
-import gameobjects.*;
-import obstacles.*;
-import ai.detection.*;
+import com.google.gson.Gson;
+import java.util.*;
+import java.io.*;
 
 public class EnhancedVisionSystem {
-    // Core vision components
     private final AprilTagDetector tagDetector;
+    private final PhotonCamera photonCamera;
     private final NetworkTableInstance networkTable;
-    private final AIObjectDetector aiDetector;
+    private final DifferentialDrive robotDrive;
+    private final PIDController alignmentPID;
+    private final Timer timer;
+    private final AIVideoDetector aiDetector;
     private final WebServer webServer;
-    
-    // Vision processing data
+
+    private final NetworkTableEntry targetXEntry, targetYEntry, targetFoundEntry, tagIDEntry, robotPoseEntry, telemetryEntry;
+
     private List<GameObject> detectedObjects;
     private List<Obstacle> detectedObstacles;
     private Mat currentFrame;
 
-    public EnhancedVisionSystem() {
+    private static final double CAMERA_HEIGHT_METERS = 0.5;
+    private static final double TARGET_HEIGHT_METERS = 1.0;
+    private static final double CAMERA_PITCH_RADIANS = 0.0;
+    private static final double ALIGNMENT_TOLERANCE = 0.02;
+    private static final double MAX_DRIVE_SPEED = 0.5;
+
+    private Pose2d currentPose;
+    private final Field2d field;
+
+    public EnhancedVisionSystem(DifferentialDrive drive) {
+        this.robotDrive = drive;
         this.tagDetector = new AprilTagDetector();
+        this.photonCamera = new PhotonCamera("photonvision");
         this.networkTable = NetworkTableInstance.getDefault();
-        this.aiDetector = new AIObjectDetector();
-        this.webServer = new WebServer(5800); // Port 5800 for web interface
-        
+        this.timer = new Timer();
+        this.field = new Field2d();
+        this.aiDetector = new AIVideoDetector();
+        this.webServer = new WebServer(5800);
+
+        this.alignmentPID = new PIDController(0.1, 0.01, 0.005);
+        alignmentPID.setTolerance(ALIGNMENT_TOLERANCE);
+
+        NetworkTable visionTable = networkTable.getTable("Vision");
+        targetXEntry = visionTable.getEntry("targetX");
+        targetYEntry = visionTable.getEntry("targetY");
+        targetFoundEntry = visionTable.getEntry("targetFound");
+        tagIDEntry = visionTable.getEntry("tagID");
+        robotPoseEntry = visionTable.getEntry("robotPose");
+        telemetryEntry = visionTable.getEntry("telemetry");
+
         initializeSystem();
     }
 
     private void initializeSystem() {
-        // Initialize vision processing
+        tagDetector.addFamily("tag16h5");
         setupVisionProcessing();
-        // Start web server
-        startWebServer();
-        // Initialize AI detection
-        initializeAIDetection();
+        webServer.start();
     }
 
     private void setupVisionProcessing() {
-        // Vision processing thread
-        new Thread(() -> {
+        Thread visionThread = new Thread(() -> {
             UsbCamera camera = CameraServer.getInstance().startAutomaticCapture();
             camera.setResolution(640, 480);
-            
+            camera.setFPS(30);
+
             CvSink cvSink = CameraServer.getInstance().getVideo();
+            CvSource outputStream = CameraServer.getInstance().putVideo("Processed", 640, 480);
             currentFrame = new Mat();
 
             while (!Thread.interrupted()) {
                 if (cvSink.grabFrame(currentFrame) == 0) continue;
-                
-                // Process frame
                 processFrame(currentFrame);
-                // Update web interface
+                outputStream.putFrame(currentFrame);
+                updateTelemetry();
                 updateWebInterface();
             }
-        }).start();
+        });
+        visionThread.setDaemon(true);
+        visionThread.start();
     }
 
     private void processFrame(Mat frame) {
-        // AprilTag detection
         ArrayList<AprilTagDetection> tags = tagDetector.detect(frame);
-        
-        // AI-based object detection
-        detectedObjects = aiDetector.detectGameObjects(frame);
-        detectedObstacles = aiDetector.detectObstacles(frame);
-        
-        // Draw detections on frame
+        if (!tags.isEmpty()) {
+            AprilTagDetection bestTarget = tags.get(0);
+            updateTargetInfo(bestTarget);
+            drawTargetOverlay(frame, bestTarget);
+            updateRobotPose(bestTarget);
+        } else {
+            targetFoundEntry.setBoolean(false);
+        }
+
+        List<DetectedObject> detectedObjects = aiDetector.detectObjects(frame);
+        updateDetectedObjects(detectedObjects);
         drawDetections(frame);
     }
 
-    private void drawDetections(Mat frame) {
-        // Draw AprilTag detections
-        drawAprilTags(frame);
-        // Draw game objects
-        drawGameObjects(frame);
-        // Draw obstacles
-        drawObstacles(frame);
+    private void updateTargetInfo(AprilTagDetection target) {
+        targetFoundEntry.setBoolean(true);
+        targetXEntry.setDouble(target.getCenterX());
+        targetYEntry.setDouble(target.getCenterY());
+        tagIDEntry.setDouble(target.getId());
     }
 
-    // Web server implementation
+    private void drawTargetOverlay(Mat frame, AprilTagDetection target) {
+        Point[] corners = new Point[4];
+        for (int i = 0; i < 4; i++) {
+            corners[i] = new Point(target.getCornerX(i), target.getCornerY(i));
+        }
+
+        Scalar color = new Scalar(0, 255, 0);
+        for (int i = 0; i < 4; i++) {
+            Imgproc.line(frame, corners[i], corners[(i + 1) % 4], color, 2);
+        }
+
+        String text = String.format("ID: %d Dist: %.2fm", target.getId(), calculateTargetDistance(target));
+        Imgproc.putText(frame, text, new Point(10, 30), Imgproc.FONT_HERSHEY_SIMPLEX, 1.0, color, 2);
+    }
+
+    private double calculateTargetDistance(AprilTagDetection target) {
+        double targetPitch = Math.atan2(target.getCenterY() - 240, 554.3);
+        return (TARGET_HEIGHT_METERS - CAMERA_HEIGHT_METERS) / Math.tan(CAMERA_PITCH_RADIANS + targetPitch);
+    }
+
+    private void updateRobotPose(AprilTagDetection target) {
+        double[] botposeTargetSpace = getBotPoseTargetSpace();
+        Pose3d botPositionFromTag = new Pose3d(botposeTargetSpace[0], botposeTargetSpace[1], botposeTargetSpace[2],
+                new Rotation3d(botposeTargetSpace[3], botposeTargetSpace[4], botposeTargetSpace[5]));
+        currentPose = botPositionFromTag.toPose2d();
+        field.setRobotPose(currentPose);
+
+        double[] poseArray = {
+                currentPose.getX(),
+                currentPose.getY(),
+                currentPose.getRotation().getDegrees()
+        };
+        robotPoseEntry.setDoubleArray(poseArray);
+    }
+
+    private void updateTelemetry() {
+        Map<String, Double> telemetryData = new HashMap<>();
+        telemetryData.put("timestamp", timer.get());
+        telemetryData.put("robotX", currentPose.getX());
+        telemetryData.put("robotY", currentPose.getY());
+        telemetryData.put("robotHeading", currentPose.getRotation().getDegrees());
+        telemetryData.put("targetFound", targetFoundEntry.getBoolean(false) ? 1.0 : 0.0);
+
+        telemetryEntry.setString(telemetryData.toString());
+    }
+
+    private void updateWebInterface() {
+        // This method would be called to update the web interface with the current state of the vision system
+        // For example, you could send the current frame, detected objects, and telemetry data to the web interface
+    }
+
+    private void updateDetectedObjects(List<DetectedObject> detectedObjects) {
+        this.detectedObjects = new ArrayList<>();
+        this.detectedObstacles = new ArrayList<>();
+
+        for (DetectedObject obj : detectedObjects) {
+            if (obj.label.equals("game_object")) {
+                GameObject gameObj = new GameObject();
+                gameObj.id = obj.id;
+                gameObj.x = obj.x;
+                gameObj.y = obj.y;
+                this.detectedObjects.add(gameObj);
+            } else if (obj.label.equals("obstacle")) {
+                Obstacle obstacle = new Obstacle();
+                obstacle.id = obj.id;
+                obstacle.x = obj.x;
+                obstacle.y = obj.y;
+                this.detectedObstacles.add(obstacle);
+            }
+        }
+    }
+
+    private void drawDetections(Mat frame) {
+        for (DetectedObject obj : aiDetector.getLastDetectedObjects()) {
+            Scalar color;
+            if (obj.label.equals("game_object")) {
+                color = new Scalar(255, 0, 0); // Blue for game objects
+            } else if (obj.label.equals("obstacle")) {
+                color = new Scalar(0, 0, 255); // Red for obstacles
+            } else {
+                color = new Scalar(0, 255, 0); // Green for other objects
+            }
+
+            Imgproc.rectangle(frame, obj.boundingBox.tl(), obj.boundingBox.br(), color, 2);
+            Imgproc.putText(frame, obj.label, obj.boundingBox.tl(), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
+        }
+    }
+
+    private class AIVideoDetector {
+        private Net net;
+        private List<String> classes;
+        private List<DetectedObject> lastDetectedObjects;
+
+        public AIVideoDetector() {
+            // Load pre-trained model and classes
+            net = Dnn.readNetFromDarknet("path/to/yolov3.cfg", "path/to/yolov3.weights");
+            classes = loadClasses("path/to/coco.names");
+            lastDetectedObjects = new ArrayList<>();
+        }
+
+        private List<String> loadClasses(String filename) {
+            List<String> classes = new ArrayList<>();
+            try (BufferedReader br = new BufferedReader(new FileReader(filename))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    classes.add(line.trim());
+                }
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+            return classes;
+        }
+
+        public List<DetectedObject> detectObjects(Mat frame) {
+            Mat blob = Dnn.blobFromImage(frame, 1 / 255.0, new Size(416, 416), new Scalar(0), true, false);
+            net.setInput(blob);
+
+            List<Mat> result = new ArrayList<>();
+            List<String> outBlobNames = net.getUnconnectedOutLayersNames();
+            net.forward(result, outBlobNames);
+
+            List<DetectedObject> detectedObjects = postprocess(frame, result);
+            lastDetectedObjects = detectedObjects;
+            return detectedObjects;
+        }
+
+        private List<DetectedObject> postprocess(Mat frame, List<Mat> outs) {
+            List<DetectedObject> detectedObjects = new ArrayList<>();
+            for (int i = 0; i < outs.size(); ++i) {
+                Mat level = outs.get(i);
+                for (int j = 0; j < level.rows(); ++j) {
+                    Mat row = level.row(j);
+                    Mat scores = row.colRange(5, level.cols());
+                    Core.MinMaxLocResult mm = Core.minMaxLoc(scores);
+                    float confidence = (float) mm.maxVal;
+                    Point classIdPoint = mm.maxLoc;
+                    if (confidence > 0.5) {
+                        int centerX = (int) (row.get(0, 0)[0] * frame.cols());
+                        int centerY = (int) (row.get(0, 1)[0] * frame.rows());
+                        int width = (int) (row.get(0, 2)[0] * frame.cols());
+                        int height = (int) (row.get(0, 3)[0] * frame.rows());
+                        int left = centerX - width / 2;
+                        int top = centerY - height / 2;
+
+                        DetectedObject obj = new DetectedObject();
+                        obj.id = detectedObjects.size();
+                        obj.label = classes.get((int) classIdPoint.x);
+                        obj.confidence = confidence;
+                        obj.boundingBox = new Rect(left, top, width, height);
+                        obj.x = centerX;
+                        obj.y = centerY;
+                        detectedObjects.add(obj);
+                    }
+                }
+            }
+            return detectedObjects;
+        }
+
+        public List<DetectedObject> getLastDetected Objects() {
+            return lastDetectedObjects;
+        }
+    }
+
+    private class DetectedObject {
+        public int id;
+        public String label;
+        public float confidence;
+        public Rect boundingBox;
+        public int x;
+        public int y;
+    }
+
+    private class GameObject {
+        public int id;
+        public int x;
+        public int y;
+    }
+
+    private class Obstacle {
+        public int id;
+        public int x;
+        public int y;
+    }
+
     private class WebServer {
         private Server server;
-        
+
         public WebServer(int port) {
             server = new Server(port);
             ServletContextHandler context = new ServletContextHandler(ServletContextHandler.SESSIONS);
             context.setContextPath("/");
             server.setHandler(context);
-            
-            // Add servlets for different pages
-            context.addServlet(new ServletHolder(new MainPageServlet()), "/");
-            context.addServlet(new ServletHolder(new DetectionPageServlet()), "/detections");
-            context.addServlet(new ServletHolder(new SettingsPageServlet()), "/settings");
+
+            context.addServlet(new ServletHolder(new WebInterfaceServlet()), "/interface");
         }
-        
+
         public void start() {
             try {
                 server.start();
@@ -112,135 +325,28 @@ public class EnhancedVisionSystem {
         }
     }
 
-    // Servlet implementations
-    private class MainPageServlet extends HttpServlet {
+    private class WebInterfaceServlet extends HttpServlet {
         @Override
-        protected void doGet(HttpServletRequest request, HttpServletResponse response) {
-            response.setContentType("text/html");
-            try {
-                response.getWriter().write(generateMainPageHTML());
-            } catch (Exception e) {
-                e.printStackTrace();
+        protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+            resp.setContentType("text/html");
+            resp.setStatus(HttpServletResponse.SC_OK);
+
+            PrintWriter writer = resp.getWriter();
+            writer.println("<html><body>");
+            writer.println("<h1>Vision System Interface</h1>");
+            writer.println("<p>Detected Objects:</p>");
+            writer.println("<ul>");
+            for (GameObject obj : detectedObjects) {
+                writer.println("<li>ID: " + obj.id + ", X: " + obj.x + ", Y: " + obj.y + "</li>");
             }
-        }
-    }
-
-    // HTML Generation Methods
-    private String generateMainPageHTML() {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Vision System Dashboard</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
-                    .container { max-width: 1200px; margin: 0 auto; }
-                    .camera-feed { width: 640px; height: 480px; background: #eee; margin: 20px 0; }
-                    .detection-list { float: right; width: 300px; }
-                    .settings { clear: both; padding-top: 20px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <h1>Vision System Dashboard</h1>
-                    <div class="camera-feed">
-                        <img src="/stream" alt="Camera Feed">
-                    </div>
-                    <div class="detection-list">
-                        <h2>Detected Objects</h2>
-                        <ul id="detections">
-                        </ul>
-                    </div>
-                    <div class="settings">
-                        <h2>Settings</h2>
-                        <form action="/settings" method="POST">
-                            <label>Detection Threshold:
-                                <input type="range" min="0" max="100" value="50">
-                            </label>
-                            <button type="submit">Save Settings</button>
-                        </form>
-                    </div>
-                </div>
-                <script>
-                    function updateDetections() {
-                        fetch('/detections')
-                            .then(response => response.json())
-                            .then(data => {
-                                const list = document.getElementById('detections');
-                                list.innerHTML = '';
-                                data.forEach(item => {
-                                    const li = document.createElement('li');
-                                    li.textContent = `${item.type}: ${item.confidence}%`;
-                                    list.appendChild(li);
-                                });
-                            });
-                    }
-                    setInterval(updateDetections, 1000);
-                </script>
-            </body>
-            </html>
-        """;
-    }
-
-    // AI Detection Classes
-    private class AIObjectDetector {
-        private final NetworkTable aiTable;
-        private final double confidenceThreshold = 0.7;
-
-        public AIObjectDetector() {
-            aiTable = networkTable.getTable("AI_Detection");
-        }
-
-        public List<GameObject> detectGameObjects(Mat frame) {
-            List<GameObject> objects = new ArrayList<>();
-            // Implement AI-based object detection here
-            // This is a placeholder for actual AI detection logic
-            return objects;
-        }
-
-        public List<Obstacle> detectObstacles(Mat frame) {
-            List<Obstacle> obstacles = new ArrayList<>();
-            // Implement AI-based obstacle detection here
-            // This is a placeholder for actual AI detection logic
-            return obstacles;
-        }
-    }
-
-    // Game Object Classes
-    public class GameObject {
-        private final String type;
-        private final Point2D.Double position;
-        private final double confidence;
-
-        public GameObject(String type, Point2D.Double position, double confidence) {
-            this.type = type;
-            this.position = position;
-            this.confidence = confidence;
-        }
-    }
-
-    public class Obstacle {
-        private final String type;
-        private final Point2D.Double position;
-        private final double size;
-
-        public Obstacle(String type, Point2D.Double position, double size) {
-            this.type = type;
-            this.position = position;
-            this.size = size;
-        }
-    }
-
-    // Main method for testing
-    public static void main(String[] args) {
-        EnhancedVisionSystem visionSystem = new EnhancedVisionSystem();
-        // Keep the main thread alive
-        while (true) {
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                e.printStackTrace();
+            writer.println("</ul>");
+            writer.println("<p>Detected Obstacles:</p>");
+            writer.println("<ul>");
+            for (Obstacle obstacle : detectedObstacles) {
+                writer.println("<li>ID: " + obstacle.id + ", X: " + obstacle.x + ", Y: " + obstacle.y + "</li>");
             }
+            writer.println("</ul>");
+            writer.println("</body></html>");
         }
     }
 }
