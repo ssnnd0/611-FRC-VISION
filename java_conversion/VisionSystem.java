@@ -1,9 +1,3 @@
-Copy code
-/*
- * FRC Team 611 Comprehensive Vision System
- * Includes: AprilTag Detection, Autonomous Navigation, Telemetry, and Network Tables
- */
-
 package frc.robot.vision;
 
 import edu.wpi.first.apriltag.*;
