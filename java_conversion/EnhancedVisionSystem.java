@@ -29,6 +29,12 @@ public class EnhancedVisionSystem {
     private final Timer timer;
     private final AIVideoDetector aiDetector;
     private final WebServer webServer;
+    private double lastFrameTimestamp = 0;
+    private double lastMetricsUpdate = 0;
+    private int frameCount = 0;
+    private double lastProcessingLatency = 0;
+    private boolean saveFrames = false;
+    private WebSocketServer webSocketServer;
 
     private final NetworkTableEntry targetXEntry, targetYEntry, targetFoundEntry, tagIDEntry, robotPoseEntry, telemetryEntry;
 
@@ -167,8 +173,113 @@ public class EnhancedVisionSystem {
     }
 
     private void updateWebInterface() {
-        // This method would be called to update the web interface with the current state of the vision system
-        // For example, you could send the current frame, detected objects, and telemetry data to the web interface
+        Map<String, Object> visionData = new HashMap<>();
+        
+        // Camera and frame data
+        visionData.put("timestamp", Timer.getFPGATimestamp());
+        visionData.put("fps", photonCamera.getPipelineResult().getLatencyMillis());
+        visionData.put("frameCount", photonCamera.getPipelineResult().getFrameNumber());
+        
+        // Robot pose data
+        Map<String, Double> poseData = new HashMap<>();
+        poseData.put("x", currentPose.getX());
+        poseData.put("y", currentPose.getY());
+        poseData.put("rotation", currentPose.getRotation().getDegrees());
+        visionData.put("robotPose", poseData);
+    
+        // Target data
+        List<Map<String, Object>> targetsData = new ArrayList<>();
+        for (DetectedObject obj : detectedObjects) {
+            Map<String, Object> targetInfo = new HashMap<>();
+            targetInfo.put("id", obj.id);
+            targetInfo.put("type", obj.label);
+            targetInfo.put("confidence", obj.confidence);
+            targetInfo.put("x", obj.x);
+            targetInfo.put("y", obj.y);
+            targetInfo.put("area", obj.boundingBox.area());
+            targetInfo.put("yaw", Math.atan2(obj.x - (currentFrame.width() / 2.0), currentFrame.width() / 2.0));
+            targetInfo.put("pitch", Math.atan2(obj.y - (currentFrame.height() / 2.0), currentFrame.height() / 2.0));
+            targetsData.add(targetInfo);
+        }
+        visionData.put("detectedTargets", targetsData);
+    
+        // Pipeline data
+        Map<String, Object> pipelineData = new HashMap<>();
+        pipelineData.put("activeModel", customModelPredictor != null ? "custom" : "default");
+        pipelineData.put("3dModelEnabled", model3DPredictor != null);
+        pipelineData.put("aprilTagEnabled", tagDetector != null);
+        pipelineData.put("exposureTime", photonCamera.getPipelineResult().getLatencyMillis());
+        pipelineData.put("threshold", 0.5); // Detection threshold
+        visionData.put("pipeline", pipelineData);
+    
+        // System diagnostics
+        Map<String, Object> diagnostics = new HashMap<>();
+        diagnostics.put("processingLatency", Timer.getFPGATimestamp() - lastFrameTimestamp);
+        diagnostics.put("cpuLoad", getCPULoad());
+        diagnostics.put("ramUsage", getRAMUsage());
+        diagnostics.put("temperature", getSystemTemp());
+        visionData.put("diagnostics", diagnostics);
+    
+        // Update NetworkTables
+        NetworkTable visionTable = networkTable.getTable("VisionSystem");
+        visionTable.getEntry("data").setString(new Gson().toJson(visionData));
+    
+        // Update web socket clients if connected
+        if (webSocketServer != null && webSocketServer.hasConnections()) {
+            try {
+                webSocketServer.broadcast(new Gson().toJson(visionData));
+            } catch (Exception e) {
+                System.err.println("Failed to broadcast vision data: " + e.getMessage());
+            }
+        }
+    
+        // Save frame if enabled
+        if (saveFrames) {
+            String timestamp = String.format("%d", System.currentTimeMillis());
+            Imgcodecs.imwrite("vision_frames/" + timestamp + ".jpg", currentFrame);
+        }
+    
+        // Update performance metrics
+        lastFrameTimestamp = Timer.getFPGATimestamp();
+        frameCount++;
+        if (frameCount % 30 == 0) { // Update metrics every 30 frames
+            updatePerformanceMetrics();
+        }
+    }
+    
+    private double getCPULoad() {
+        try {
+            return ManagementFactory.getOperatingSystemMXBean().getSystemLoadAverage();
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+    
+    private long getRAMUsage() {
+        return Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+    }
+    
+    private double getSystemTemp() {
+        try {
+            String temp = new String(Files.readAllBytes(Paths.get("/sys/class/thermal/thermal_zone0/temp")));
+            return Double.parseDouble(temp) / 1000.0;
+        } catch (Exception e) {
+            return -1;
+        }
+    }
+    
+    private void updatePerformanceMetrics() {
+        double currentTime = Timer.getFPGATimestamp();
+        double elapsed = currentTime - lastMetricsUpdate;
+        double fps = frameCount / elapsed;
+        
+        NetworkTable metricsTable = networkTable.getTable("VisionMetrics");
+        metricsTable.getEntry("fps").setDouble(fps);
+        metricsTable.getEntry("latency").setDouble(lastProcessingLatency * 1000);
+        metricsTable.getEntry("uptime").setDouble(Timer.getFPGATimestamp());
+        
+        frameCount = 0;
+        lastMetricsUpdate = currentTime;
     }
 
     private void updateDetectedObjects(List<DetectedObject> detectedObjects) {
