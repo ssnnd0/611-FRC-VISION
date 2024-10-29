@@ -26,7 +26,7 @@ def main():
     networking.initialize()
     #networking.wait_for_connection()
 
-    while True:
+    while True: #runs until program end clause executes
         # read frame from camera
         ret, frame = cap.read()
         # resize frame
@@ -44,21 +44,24 @@ def main():
         # draw object outline and distance data to screen, show it
         show_frame(frame,top_left,bottom_right,distance_to_camera,frame_shape)
         
-         # given an "x" input, end the program.
+        # accept input key from user
         givenKey = cv2.waitKey(500)
-        # program end clause
-        if givenKey == ord('x'):
+        # given an "escape" input, end the program.
+        if givenKey%256 == 27:
+            # program end clause
             cap.release()
             cv2.destroyAllWindows()
             sys.exit()
 
 # Draw object outline and vision data to screen, then show it
 def show_frame(frame,obj_top_left,obj_bottom_right,distance,frame_shape):
-
+    #drag frame outline
     cv2.rectangle(frame,obj_top_left,obj_bottom_right,(0,255,0),2)
 
+    # calculate distance, add distance string to text to place on image
     distance_string = "Distance: " + str(distance)
 
+    # place surrounding text on border
     cv2.putText(frame,distance_string,(frame_shape[0]-200,frame_shape[1]-200), font, 0.75,(255,255,255),2,cv2.LINE_AA)
 
     cv2.imshow('Image Processing',frame)

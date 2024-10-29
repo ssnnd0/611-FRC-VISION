@@ -1,12 +1,13 @@
-# Raspberry Pi Machine Learning Vision for FRC
+# Raspberry Pi Machine Learning Vision for FIRST Robotics Competition (FRC)
 
 ## Inspiration 
-Vision tracking for FRC (FIRST Robotics Competition).
+Vision tracking for FRC (FIRST Robotics Competition) for Team 611 - The Saxons.
 
-### HELP ME IM DEAD INSIDE
-
-
+### TEAM 611 ON TOP BABY
 
 https://docs.luxonis.com/
 
-if we use their oak (cameras)[https://shop.luxonis.com/collections/oak-cameras-1] we can use python, it has ai built in
+### Other/Future:
+OAK Cameras - [https://shop.luxonis.com/collections/oak-cameras-1] 
+- Python, Built in AI.
+- Costly, Check in with team if implemented.
