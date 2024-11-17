@@ -17,6 +17,7 @@ import org.opencv.dnn.*;
 import org.opencv.videoio.VideoCapture;
 import org.opencv.ml.SVM;
 import org.opencv.ml.Boost;
+import org.opencv.objdetect.CascadeClassifier;
 
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -34,6 +35,9 @@ import javafx.scene.chart.XYChart;
 import javafx.scene.paint.Color;
 import javafx.stage.FileChooser;
 import javafx.geometry.Insets;
+import javafx.scene.control.Alert.AlertType;
+import javafx.scene.shape.Circle;
+import javafx.scene.shape.Rectangle;
 
 import com.pathplanner.lib.PathPlanner;
 import com.pathplanner.lib.PathPlannerTrajectory;
@@ -44,6 +48,7 @@ import java.io.*;
 import java.nio.file.*;
 import java.lang.management.ManagementFactory;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 public class AdvancedVisionSystem extends Application {
 
@@ -86,19 +91,46 @@ public class AdvancedVisionSystem extends Application {
     private final AtomicBoolean isAutonomousMode = new AtomicBoolean(false);
     private Command currentAutonomousCommand;
 
-    // GUI components
-    private ColorPicker overlayColorPicker;
-    private Slider thresholdSlider;
-    private CheckBox showDetectionsCheckBox;
-    private ComboBox<String> aiModelComboBox;
-    private Button trainAIButton;
-    private TextArea logTextArea;
+    private CascadeClassifier faceCascade;
+    private Mat lastProcessedFrame;
+    private boolean isRecording = false;
+    private VideoWriter videoWriter;
+    private String recordingFilename;
 
-    // AI training parameters
-    private List<Mat> trainingImages;
-    private List<Integer> trainingLabels;
-    private SVM svm;
-    private Boost boost;
+    private TabPane tabPane;
+    private Tab visionTab;
+    private Tab analysisTab;
+    private Tab settingsTab;
+
+    private LineChart<Number, Number> objectCountChart;
+    private XYChart.Series<Number, Number> gameObjectSeries;
+    private XYChart.Series<Number, Number> obstacleSeries;
+
+    private Slider brightnessSlider;
+    private Slider contrastSlider;
+    private Slider saturationSlider;
+
+    private CheckBox enableFaceDetectionCheckBox;
+    private CheckBox enableObjectTrackingCheckBox;
+
+    private ComboBox<String> cameraSourceComboBox;
+    private List<String> availableCameras;
+
+    private Button startRecordingButton;
+    private Button stopRecordingButton;
+
+    private TextArea consoleOutput;
+
+    private Canvas fieldMapCanvas;
+    private GraphicsContext fieldMapGc;
+    private Map<Integer, Point2D> gameObjectPositions;
+    private Point2D robotPosition;
+
+    private String appName = "Advanced Vision System";
+    private boolean isDarkTheme = false;
+    private Color robotColor = Color.BLUE;
+    private Color gameObjectColor = Color.GREEN;
+    private Color obstacleColor = Color.RED;
 
     public AdvancedVisionSystem(DifferentialDrive drive) {
         this.robotDrive = drive;
@@ -123,10 +155,15 @@ public class AdvancedVisionSystem extends Application {
         feedforward = new SimpleMotorFeedforward(1, 3);
         ramseteController = new RamseteController();
 
-        trainingImages = new ArrayList<>();
-        trainingLabels = new ArrayList<>();
-        svm = SVM.create();
-        boost = Boost.create();
+        faceCascade = new CascadeClassifier();
+        faceCascade.load("path/to/haarcascade_frontalface_default.xml");
+
+        lastProcessedFrame = new Mat();
+        
+        availableCameras = new ArrayList<>();
+        
+        gameObjectPositions = new HashMap<>();
+        robotPosition = new Point2D(0, 0);
 
         initializeSystem();
     }
@@ -137,7 +174,10 @@ public class AdvancedVisionSystem extends Application {
         setupSmartDashboard();
         setupPathPlanner();
         setupAutonomousCommand();
-        initializeAIModels();
+        initializeGUI();
+        setupAdditionalCharts();
+        loadAvailableCameras();
+        initializeFieldMap();
     }
 
     private void setupVisionProcessing() {
@@ -184,7 +224,27 @@ public class AdvancedVisionSystem extends Application {
             drawDetections(frame);
         }
 
+        if (enableFaceDetectionCheckBox.isSelected()) {
+            detectAndDrawFaces(frame);
+        }
+
+        if (enableObjectTrackingCheckBox.isSelected()) {
+            trackObjects(frame);
+        }
+
+        applyImageAdjustments(frame);
+
+        if (isRecording && videoWriter.isOpened()) {
+            videoWriter.write(frame);
+        }
+
+        frame.copyTo(lastProcessedFrame);
+
         performStrategicAnalysis();
+
+        updateRobotPosition();
+        updateGameObjectPositions();
+        updateFieldMap();
 
         long endTime = System.nanoTime();
         lastProcessingLatency = (endTime - startTime) / 1e6; // Convert to milliseconds
@@ -278,7 +338,7 @@ public class AdvancedVisionSystem extends Application {
         // Use the trajectory in your autonomous command
     }
 
-    private void setupAutonomousCommand() {
+        private void setupAutonomousCommand() {
         PathPlannerTrajectory trajectory = PathPlanner.loadPath("ExamplePath", 4, 3);
         currentAutonomousCommand = new PPRamseteCommand(
             trajectory,
@@ -308,79 +368,131 @@ public class AdvancedVisionSystem extends Application {
         robotDrive.tankDrive(leftVolts / 12.0, rightVolts / 12.0);
     }
 
-    private void performStrategicAnalysis() {
-        logMessage("Performing strategic analysis...");
-        if (isNearScoringPosition()) {
-            logMessage("Near scoring position. Recommending alignment.");
-        }
+    private void initializeGUI() {
+        tabPane = new TabPane();
+        visionTab = new Tab("Vision");
+        analysisTab = new Tab("Analysis");
+        settingsTab = new Tab("Settings");
+        Tab fieldMapTab = new Tab("Field Map");
+
+        tabPane.getTabs().addAll(visionTab, analysisTab, settingsTab, fieldMapTab);
+
+        visionTab.setContent(createVisionTabContent());
+        analysisTab.setContent(createAnalysisTabContent());
+        settingsTab.setContent(createSettingsTabContent());
+        fieldMapTab.setContent(createFieldMapTabContent());
     }
 
-    private boolean isNearScoringPosition() {
-        return currentPose.getTranslation().getDistance(new Translation2d(5, 5)) < 1.0;
-    }
-
-    @Override
-    public void start(Stage primaryStage) {
-        primaryStage.setTitle("Advanced Vision System");
-
-        BorderPane root = new BorderPane();
-
-        VBox centerContent = new VBox(10);
-        centerContent.setPadding(new Insets(10));
+    private VBox createVisionTabContent() {
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(10));
 
         visionCanvas = new Canvas(640, 480);
         gc = visionCanvas.getGraphicsContext2D();
-        centerContent.getChildren().add(visionCanvas);
 
         setupFPSChart();
-        centerContent.getChildren().add(fpsChart);
 
-        root.setCenter(centerContent);
+        content.getChildren().addAll(visionCanvas, fpsChart);
 
-        VBox sidePanel = new VBox(10);
-        sidePanel.setPadding(new Insets(10));
-        sidePanel.setStyle("-fx-background-color: #f0f0f0;");
+        return content;
+    }
 
-        Label colorLabel = new Label("Overlay Color:");
-        overlayColorPicker = new ColorPicker(Color.GREEN);
-        sidePanel.getChildren().addAll(colorLabel, overlayColorPicker);
+    private VBox createAnalysisTabContent() {
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(10));
 
-                Label thresholdLabel = new Label("Detection Threshold:");
-        thresholdSlider = new Slider(0, 1, 0.5);
-        thresholdSlider.setShowTickLabels(true);
-        thresholdSlider.setShowTickMarks(true);
-        sidePanel.getChildren().addAll(thresholdLabel, thresholdSlider);
+        content.getChildren().addAll(objectCountChart);
 
-        showDetectionsCheckBox = new CheckBox("Show Detections");
-        showDetectionsCheckBox.setSelected(true);
-        sidePanel.getChildren().add(showDetectionsCheckBox);
+        return content;
+    }
 
-        Label modelLabel = new Label("AI Model:");
-        aiModelComboBox = new ComboBox<>();
-        aiModelComboBox.getItems().addAll("YOLOv3", "SSD", "Faster R-CNN");
-        aiModelComboBox.setValue("YOLOv3");
-        sidePanel.getChildren().addAll(modelLabel, aiModelComboBox);
+    private VBox createSettingsTabContent() {
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(10));
 
-        trainAIButton = new Button("Train AI Model");
-        trainAIButton.setOnAction(e -> trainAIModel());
-        sidePanel.getChildren().add(trainAIButton);
+        Label brightnessLabel = new Label("Brightness:");
+        brightnessSlider = new Slider(0, 100, 50);
+        brightnessSlider.setShowTickLabels(true);
+        brightnessSlider.setShowTickMarks(true);
 
-        Button captureButton = new Button("Capture Frame");
-        captureButton.setOnAction(e -> captureFrame());
-        sidePanel.getChildren().add(captureButton);
+        Label contrastLabel = new Label("Contrast:");
+        contrastSlider = new Slider(0, 100, 50);
+        contrastSlider.setShowTickLabels(true);
+        contrastSlider.setShowTickMarks(true);
 
-        logTextArea = new TextArea();
-        logTextArea.setEditable(false);
-        logTextArea.setPrefHeight(200);
-        sidePanel.getChildren().add(logTextArea);
+        Label saturationLabel = new Label("Saturation:");
+        saturationSlider = new Slider(0, 100, 50);
+        saturationSlider.setShowTickLabels(true);
+        saturationSlider.setShowTickMarks(true);
 
-        root.setRight(sidePanel);
+        enableFaceDetectionCheckBox = new CheckBox("Enable Face Detection");
+        enableObjectTrackingCheckBox = new CheckBox("Enable Object Tracking");
 
-        Scene scene = new Scene(root, 1000, 600);
-        primaryStage.setScene(scene);
-        primaryStage.show();
+        Label cameraSourceLabel = new Label("Camera Source:");
+        cameraSourceComboBox = new ComboBox<>();
+        cameraSourceComboBox.setOnAction(e -> switchCamera(cameraSourceComboBox.getValue()));
 
-        startAnimationTimer();
+        startRecordingButton = new Button("Start Recording");
+        startRecordingButton.setOnAction(e -> startRecording());
+
+        stopRecordingButton = new Button("Stop Recording");
+        stopRecordingButton.setOnAction(e -> stopRecording());
+        stopRecordingButton.setDisable(true);
+
+        consoleOutput = new TextArea();
+        consoleOutput.setEditable(false);
+        consoleOutput.setPrefRowCount(10);
+
+        CheckBox darkThemeCheckBox = new CheckBox("Dark Theme");
+        darkThemeCheckBox.setSelected(isDarkTheme);
+        darkThemeCheckBox.setOnAction(e -> toggleTheme(darkThemeCheckBox.isSelected()));
+
+        Label robotColorLabel = new Label("Robot Color:");
+        ColorPicker robotColorPicker = new ColorPicker(robotColor);
+        robotColorPicker.setOnAction(e -> {
+            robotColor = robotColorPicker.getValue();
+            updateFieldMap();
+        });
+
+        Label gameObjectColorLabel = new Label("Game Object Color:");
+        ColorPicker gameObjectColorPicker = new ColorPicker(gameObjectColor);
+        gameObjectColorPicker.setOnAction(e -> {
+            gameObjectColor = gameObjectColorPicker.getValue();
+            updateFieldMap();
+        });
+
+        Label obstacleColorLabel = new Label("Obstacle Color:");
+        ColorPicker obstacleColorPicker = new ColorPicker(obstacleColor);
+        obstacleColorPicker.setOnAction(e -> {
+            obstacleColor = obstacleColorPicker.getValue();
+            updateFieldMap();
+        });
+
+        content.getChildren().addAll(
+            brightnessLabel, brightnessSlider,
+            contrastLabel, contrastSlider,
+            saturationLabel, saturationSlider,
+            enableFaceDetectionCheckBox, enableObjectTrackingCheckBox,
+            cameraSourceLabel, cameraSourceComboBox,
+            startRecordingButton, stopRecordingButton,
+            new Label("Console Output:"),
+            consoleOutput,
+            darkThemeCheckBox,
+            robotColorLabel, robotColorPicker,
+            gameObjectColorLabel, gameObjectColorPicker,
+            obstacleColorLabel, obstacleColorPicker
+        );
+
+        return content;
+    }
+
+    private VBox createFieldMapTabContent() {
+        VBox content = new VBox(10);
+        content.setPadding(new Insets(10));
+
+        content.getChildren().add(fieldMapCanvas);
+
+        return content;
     }
 
     private void setupFPSChart() {
@@ -394,6 +506,250 @@ public class AdvancedVisionSystem extends Application {
         fpsSeries = new XYChart.Series<>();
         fpsSeries.setName("FPS");
         fpsChart.getData().add(fpsSeries);
+    }
+
+    private void setupAdditionalCharts() {
+        NumberAxis xAxis = new NumberAxis();
+        NumberAxis yAxis = new NumberAxis();
+        objectCountChart = new LineChart<>(xAxis, yAxis);
+        objectCountChart.setTitle("Detected Objects Over Time");
+        xAxis.setLabel("Time (s)");
+        yAxis.setLabel("Count");
+
+        gameObjectSeries = new XYChart.Series<>();
+        gameObjectSeries.setName("Game Objects");
+        obstacleSeries = new XYChart.Series<>();
+        obstacleSeries.setName("Obstacles");
+
+        objectCountChart.getData().addAll(gameObjectSeries, obstacleSeries);
+    }
+
+    private void loadAvailableCameras() {
+        availableCameras.clear();
+        availableCameras.add("Default Camera");
+
+        // This is a simplified way to detect cameras. In practice, you'd use platform-specific methods.
+        for (int i = 0; i < 10; i++) {
+            VideoCapture cap = new VideoCapture(i);
+            if (cap.isOpened()) {
+                availableCameras.add("Camera " + i);
+                cap.release();
+            }
+        }
+
+        Platform.runLater(() -> {
+            cameraSourceComboBox.getItems().clear();
+            cameraSourceComboBox.getItems().addAll(availableCameras);
+            cameraSourceComboBox.setValue("Default Camera");
+        });
+    }
+
+    private void switchCamera(String cameraSource) {
+        // Implementation to switch between cameras
+        logMessage("Switching to camera: " + cameraSource);
+        // You would need to modify your video capture setup here
+    }
+
+    private void startRecording() {
+        if (!isRecording) {
+            recordingFilename = "recording_" + System.currentTimeMillis() + ".avi";
+            videoWriter = new VideoWriter(recordingFilename, VideoWriter.fourcc('M','J','P','G'), 10, new Size(640, 480));
+            isRecording = true;
+            startRecordingButton.setDisable(true);
+            stopRecordingButton.setDisable(false);
+            logMessage("Started recording: " + recordingFilename);
+        }
+    }
+
+    private void stopRecording() {
+        if (isRecording) {
+            isRecording = false;
+            videoWriter.release();
+            startRecordingButton.setDisable(false);
+            stopRecordingButton.setDisable(true);
+            logMessage("Stopped recording: " + recordingFilename);
+        }
+    }
+
+    private void detectAndDrawFaces(Mat frame) {
+        MatOfRect faces = new MatOfRect();
+        Mat grayFrame = new Mat();
+        Imgproc.cvtColor(frame, grayFrame, Imgproc.COLOR_BGR2GRAY);
+        faceCascade.detectMultiScale(grayFrame, faces);
+
+        for (Rect rect : faces.toArray()) {
+            Imgproc.rectangle(frame, new Point(rect.x, rect.y), new Point(rect.x + rect.width, rect.y + rect.height), new Scalar(0, 255, 0), 2);
+        }
+    }
+
+    private void trackObjects(Mat frame) {
+        // Implement object tracking algorithm here
+        // This is a placeholder for demonstration
+        logMessage("Object tracking in progress...");
+    }
+
+    private void applyImageAdjustments(Mat frame) {
+        double alpha = contrastSlider.getValue() / 50.0; // Contrast control (1.0-3.0)
+        int beta = (int) (brightnessSlider.getValue() - 50); // Brightness control (0-100)
+
+        frame.convertTo(frame, -1, alpha, beta);
+
+        if (saturationSlider.getValue() != 50) {
+            Mat hsvImage = new Mat();
+            Imgproc.cvtColor(frame, hsvImage, Imgproc.COLOR_BGR2HSV);
+            List<Mat> hsvChannels = new ArrayList<>();
+            Core.split(hsvImage, hsvChannels);
+            Core.multiply(hsvChannels.get(1), saturationSlider.getValue() / 50.0, hsvChannels.get(1));
+            Core.merge(hsvChannels, hsvImage);
+            Imgproc.cvtColor(hsvImage, frame, Imgproc.COLOR_HSV2BGR);
+        }
+    }
+
+    private void updateObjectCountChart() {
+        double time = timer.get();
+        int gameObjectCount = detectedObjects.size();
+        int obstacleCount = detectedObstacles.size();
+
+        Platform.runLater(() -> {
+            gameObjectSeries.getData().add(new XYChart.Data<>(time, gameObjectCount));
+            obstacleSeries.getData().add(new XYChart.Data<>(time, obstacleCount));
+
+            // Remove old data points to keep the chart readable
+            if (gameObjectSeries.getData().size() > 100) {
+                gameObjectSeries.getData().remove(0);
+                obstacleSeries.getData().remove(0);
+            }
+        });
+    }
+
+    private void logMessage(String message) {
+        Platform.runLater(() -> {
+            consoleOutput.appendText(message + "\n");
+            // Autoscroll to the bottom
+            consoleOutput.setScrollTop(Double.MAX_VALUE);
+        });
+    }
+
+    private void initializeFieldMap() {
+        fieldMapCanvas = new Canvas(300, 300);
+        fieldMapGc = fieldMapCanvas.getGraphicsContext2D();
+        updateFieldMap();
+    }
+
+    private void updateRobotPosition() {
+        // This is a placeholder. In a real application, you would calculate the robot's position
+        // based on sensor data, vision processing results, or odometry.
+        robotPosition = new Point2D(
+            currentPose.getX() * 10, // Scale the position to fit the field map
+            currentPose.getY() * 10
+        );
+    }
+
+    private void updateGameObjectPositions() {
+        // This is a placeholder. In a real application, you would update game object positions
+        // based on vision processing results.
+        for (GameObject obj : detectedObjects) {
+            gameObjectPositions.put(obj.id, new Point2D(obj.x * 10, obj.y * 10));
+        }
+    }
+
+    private void updateFieldMap() {
+        fieldMapGc.clearRect(0, 0, fieldMapCanvas.getWidth(), fieldMapCanvas.getHeight());
+
+        // Draw field boundaries
+        fieldMapGc.setStroke(Color.BLACK);
+        fieldMapGc.strokeRect(0, 0, fieldMapCanvas.getWidth(), fieldMapCanvas.getHeight());
+
+        // Draw robot
+        fieldMapGc.setFill(robotColor);
+        fieldMapGc.fillOval(robotPosition.getX() - 5, robotPosition.getY() - 5, 10, 10);
+
+        // Draw game objects
+        fieldMapGc.setFill(gameObjectColor);
+        for (Point2D objPos : gameObjectPositions.values()) {
+            fieldMapGc.fillRect(objPos.getX() - 3, objPos.getY() - 3, 6, 6);
+        }
+
+        // Draw obstacles
+        fieldMapGc.setFill(obstacleColor);
+        for (Obstacle obstacle : detectedObstacles) {
+            fieldMapGc.fillRect(obstacle.x * 10 - 3, obstacle.y * 10 - 3, 6, 6);
+        }
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle(appName);
+
+        BorderPane root = new BorderPane();
+
+        MenuBar menuBar = createMenuBar();
+        root.setTop(menuBar);
+        root.setCenter(tabPane);
+
+        Scene scene = new Scene(root, 1200, 800);
+        scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
+        primaryStage.setScene(scene);
+        primaryStage.show();
+
+        startAnimationTimer();
+    }
+
+    private MenuBar createMenuBar() {
+        MenuBar menuBar = new MenuBar();
+
+        Menu fileMenu = new Menu("File");
+        MenuItem exitItem = new MenuItem("Exit");
+        exitItem.setOnAction(e -> System.exit(0));
+        fileMenu.getItems().add(exitItem);
+
+        Menu editMenu = new Menu("Edit");
+        MenuItem renameItem = new MenuItem("Rename App");
+        renameItem.setOnAction(e -> renameApp());
+        editMenu.getItems().add(renameItem);
+
+        Menu helpMenu = new Menu("Help");
+        MenuItem aboutItem = new MenuItem("About");
+        aboutItem.setOnAction(e -> showAboutDialog());
+        helpMenu.getItems().add(aboutItem);
+
+        menuBar.getMenus().addAll(fileMenu, editMenu, helpMenu);
+
+        return menuBar;
+    }
+
+        private void renameApp() {
+        TextInputDialog dialog = new TextInputDialog(appName);
+        dialog.setTitle("Rename App");
+        dialog.setHeaderText("Enter new app name:");
+        dialog.setContentText("Name:");
+
+        Optional<String> result = dialog.showAndWait();
+        result.ifPresent(name -> {
+            appName = name;
+            Stage stage = (Stage) tabPane.getScene().getWindow();
+            stage.setTitle(appName);
+        });
+    }
+
+    private void showAboutDialog() {
+        Alert alert = new Alert(AlertType.INFORMATION);
+        alert.setTitle("About " + appName);
+        alert.setHeaderText(null);
+        alert.setContentText("This is an advanced vision system for FRC robots.\nVersion: 1.0\nDeveloped by: Your Team");
+        alert.showAndWait();
+    }
+
+    private void toggleTheme(boolean isDark) {
+        isDarkTheme = isDark;
+        Scene scene = tabPane.getScene();
+        if (isDarkTheme) {
+            scene.getStylesheets().remove("/styles.css");
+            scene.getStylesheets().add("/dark-styles.css");
+        } else {
+            scene.getStylesheets().remove("/dark-styles.css");
+            scene.getStylesheets().add("/styles.css");
+        }
     }
 
     private void startAnimationTimer() {
@@ -416,6 +772,7 @@ public class AdvancedVisionSystem extends Application {
                 gc.drawImage(image, 0, 0);
 
                 updateFPSChart();
+                updateObjectCountChart();
             }
         });
     }
@@ -431,85 +788,19 @@ public class AdvancedVisionSystem extends Application {
         }
     }
 
-    private void captureFrame() {
-        if (currentFrame != null && !currentFrame.empty()) {
-            String filename = "capture_" + System.currentTimeMillis() + ".png";
-            Imgcodecs.imwrite(filename, currentFrame);
-            logMessage("Frame captured: " + filename);
+    private void performStrategicAnalysis() {
+        // Implement game-specific strategic analysis here
+        // This could involve analyzing the positions of game objects, obstacles, and the robot
+        // to make decisions about autonomous actions or provide driver assistance
+        logMessage("Performing strategic analysis...");
+        if (isNearScoringPosition()) {
+            logMessage("Near scoring position. Recommending alignment.");
         }
     }
 
-    private void trainAIModel() {
-        String selectedModel = aiModelComboBox.getValue();
-        logMessage("Training " + selectedModel + " model...");
-        
-        // Simulating AI training process
-        new Thread(() -> {
-            for (int i = 0; i < 100; i++) {
-                try {
-                    Thread.sleep(50);
-                    final int progress = i;
-                    Platform.runLater(() -> logMessage("Training progress: " + progress + "%"));
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-            }
-            Platform.runLater(() -> logMessage("Training complete!"));
-        }).start();
-    }
-
-    private void logMessage(String message) {
-        logTextArea.appendText(message + "\n");
-    }
-
-    private void initializeAIModels() {
-        // Initialize SVM
-        svm.setType(SVM.C_SVC);
-        svm.setKernel(SVM.RBF);
-        svm.setTermCriteria(new TermCriteria(TermCriteria.MAX_ITER, 100, 1e-6));
-
-        // Initialize Boost
-        boost.setBoostType(Boost.GENTLE);
-        boost.setWeakCount(100);
-        boost.setWeightTrimRate(0.95);
-        boost.setMaxDepth(2);
-        boost.setUseSurrogates(false);
-        boost.setPriors(new Mat());
-    }
-
-    private void updateDetectedObjects(List<DetectedObject> detectedObjects) {
-        this.detectedObjects = new ArrayList<>();
-        this.detectedObstacles = new ArrayList<>();
-        for (DetectedObject obj : detectedObjects) {
-            if (obj.label.equals("game_object")) {
-                GameObject gameObj = new GameObject();
-                gameObj.id = obj.id;
-                gameObj.x = obj.x;
-                gameObj.y = obj.y;
-                this.detectedObjects.add(gameObj);
-            } else if (obj.label.equals("obstacle")) {
-                Obstacle obstacle = new Obstacle();
-                obstacle.id = obj.id;
-                obstacle.x = obj.x;
-                obstacle.y = obj.y;
-                this.detectedObstacles.add(obstacle);
-            }
-        }
-    }
-
-    private void drawDetections(Mat frame) {
-        for (DetectedObject obj : aiDetector.getLastDetectedObjects()) {
-            Scalar color;
-            if (obj.label.equals("game_object")) {
-                color = new Scalar(255, 0, 0); // Blue for game objects
-            } else if (obj.label.equals("obstacle")) {
-                color = new Scalar(0, 0, 255); // Red for obstacles
-            } else {
-                color = new Scalar(0, 255, 0); // Green for other objects
-            }
-            Imgproc.rectangle(frame, obj.boundingBox.tl(), obj.boundingBox.br(), color, 2);
-            Imgproc.putText(frame, obj.label, obj.boundingBox.tl(), Imgproc.FONT_HERSHEY_SIMPLEX, 0.5, color, 2);
-        }
+    private boolean isNearScoringPosition() {
+        // Implement logic to determine if the robot is near a scoring position
+        return currentPose.getTranslation().getDistance(new Translation2d(5, 5)) < 1.0;
     }
 
     private class AIVideoDetector {
@@ -591,6 +882,18 @@ public class AdvancedVisionSystem extends Application {
 
         public List<DetectedObject> getLastDetectedObjects() {
             return lastDetectedObjects;
+        }
+
+        public void trainModel(List<Mat> trainingImages, List<Integer> labels) {
+            // Implement model training here
+            logMessage("Training AI model...");
+            // This is a placeholder for demonstration
+            try {
+                Thread.sleep(2000); // Simulate training time
+                logMessage("AI model training complete!");
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
         }
     }
 
